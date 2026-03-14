@@ -30,6 +30,7 @@ pub mod delegate;
 pub mod file_edit;
 pub mod file_read;
 pub mod file_write;
+pub mod gifticon;
 pub mod git_operations;
 pub mod glob_search;
 #[cfg(feature = "hardware")]
@@ -241,6 +242,10 @@ pub fn all_tools_with_runtime(
             workspace_dir.to_path_buf(),
         )),
         Arc::new(pantry::PantryTool::new(
+            security.clone(),
+            workspace_dir.to_path_buf(),
+        )),
+        Arc::new(gifticon::GifticonTool::new(
             security.clone(),
             workspace_dir.to_path_buf(),
         )),
