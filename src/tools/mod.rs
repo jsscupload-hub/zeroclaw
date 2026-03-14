@@ -44,6 +44,7 @@ pub mod memory_forget;
 pub mod memory_recall;
 pub mod memory_store;
 pub mod model_routing_config;
+pub mod pantry;
 pub mod pdf_read;
 pub mod proxy_config;
 pub mod pushover;
@@ -236,6 +237,10 @@ pub fn all_tools_with_runtime(
             workspace_dir.to_path_buf(),
         )),
         Arc::new(PushoverTool::new(
+            security.clone(),
+            workspace_dir.to_path_buf(),
+        )),
+        Arc::new(pantry::PantryTool::new(
             security.clone(),
             workspace_dir.to_path_buf(),
         )),
