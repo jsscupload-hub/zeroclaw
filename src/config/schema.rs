@@ -209,6 +209,10 @@ pub struct Config {
     #[serde(default)]
     pub cost: CostConfig,
 
+    /// Home Assistant configuration (`[home_assistant]`).
+    #[serde(default)]
+    pub home_assistant: HomeAssistantConfig,
+
     /// Peripheral board configuration for hardware integration (`[peripherals]`).
     #[serde(default)]
     pub peripherals: PeripheralsConfig,
@@ -898,6 +902,22 @@ fn get_default_pricing() -> std::collections::HashMap<String, ModelPricing> {
     );
 
     prices
+}
+
+// ── Home Assistant (Appliance manuals, RAG, etc.) ──────────────────────────
+
+/// Home Assistant configuration (`[home_assistant]`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct HomeAssistantConfig {
+    /// Enable Home Assistant mode.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Path to home appliance manuals (relative to workspace).
+    #[serde(default)]
+    pub manuals_dir: Option<String>,
+    /// Optional additional keywords. Filenames in manuals_dir are automatically used as keywords.
+    #[serde(default)]
+    pub appliance_keywords: Vec<String>,
 }
 
 // ── Peripherals (hardware: STM32, RPi GPIO, etc.) ────────────────────────

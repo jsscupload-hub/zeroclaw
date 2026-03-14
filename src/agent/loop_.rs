@@ -6,6 +6,7 @@ use crate::observability::{self, runtime_trace, Observer, ObserverEvent};
 use crate::providers::{
     self, ChatMessage, ChatRequest, Provider, ProviderCapabilityError, ToolCall,
 };
+use crate::rag::manual::ManualRag;
 use crate::runtime;
 use crate::security::SecurityPolicy;
 use crate::tools::{self, Tool};
@@ -314,6 +315,35 @@ fn build_hardware_context(
             context,
             "--- {} ({}) ---\n{}\n",
             chunk.source, board_tag, chunk.content
+        );
+    }
+    context.push('\n');
+    context
+}
+
+/// Build manual context from RAG when Home Assistant is enabled.
+fn build_manual_context(
+    rag: &crate::rag::manual::ManualRag,
+    user_msg: &str,
+    extra_keywords: &[String],
+    chunk_limit: usize,
+) -> String {
+    if rag.is_empty() || !rag.is_relevant(user_msg, extra_keywords) {
+        return String::new();
+    }
+
+    let mut context = String::new();
+    let chunks = rag.retrieve(user_msg, chunk_limit);
+    if chunks.is_empty() {
+        return String::new();
+    }
+
+    context.push_str("[Appliance Manual Context]\n");
+    for chunk in chunks {
+        let _ = writeln!(
+            context,
+            "--- {} ---\n{}\n",
+            chunk.source, chunk.content
         );
     }
     context.push('\n');
@@ -3091,7 +3121,18 @@ pub async fn run(
             .as_ref()
             .map(|r| build_hardware_context(r, &msg, &board_names, rag_limit))
             .unwrap_or_default();
-        let context = format!("{mem_context}{hw_context}");
+        let manual_context = manual_rag
+            .as_ref()
+            .map(|r| {
+                build_manual_context(
+                    r,
+                    &msg,
+                    &config.home_assistant.appliance_keywords,
+                    rag_limit,
+                )
+            })
+            .unwrap_or_default();
+        let context = format!("{mem_context}{hw_context}{manual_context}");
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
         let enriched = if context.is_empty() {
             format!("[{now}] {msg}")
@@ -3220,6 +3261,17 @@ pub async fn run(
                     .await;
             }
 
+            // ── Manual RAG (appliance manuals retrieval) ───────────────────
+            // Reload manually to pick up filesystem changes (add/delete files)
+            let manual_rag = config
+                .home_assistant
+                .manuals_dir
+                .as_ref()
+                .filter(|d| !d.trim().is_empty())
+                .map(|dir| crate::rag::manual::ManualRag::load(&config.workspace_dir, dir.trim()))
+                .and_then(Result::ok)
+                .filter(|r| !r.is_empty());
+
             // Inject memory + hardware RAG context into user message
             let mem_context =
                 build_context(mem.as_ref(), &user_input, config.memory.min_relevance_score).await;
@@ -3228,7 +3280,18 @@ pub async fn run(
                 .as_ref()
                 .map(|r| build_hardware_context(r, &user_input, &board_names, rag_limit))
                 .unwrap_or_default();
-            let context = format!("{mem_context}{hw_context}");
+            let manual_context = manual_rag
+                .as_ref()
+                .map(|r| {
+                    build_manual_context(
+                        r,
+                        &user_input,
+                        &config.home_assistant.appliance_keywords,
+                        rag_limit,
+                    )
+                })
+                .unwrap_or_default();
+            let context = format!("{mem_context}{hw_context}{manual_context}");
             let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
             let enriched = if context.is_empty() {
                 format!("[{now}] {user_input}")
@@ -3390,6 +3453,16 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         .map(|b| b.board.clone())
         .collect();
 
+    // ── Manual RAG (appliance manuals retrieval) ───────────────────
+    let manual_rag: Option<crate::rag::manual::ManualRag> = config
+        .home_assistant
+        .manuals_dir
+        .as_ref()
+        .filter(|d| !d.trim().is_empty())
+        .map(|dir| crate::rag::manual::ManualRag::load(&config.workspace_dir, dir.trim()))
+        .and_then(Result::ok)
+        .filter(|r| !r.is_empty());
+
     let skills = crate::skills::load_skills_with_config(&config.workspace_dir, &config);
     let mut tool_descs: Vec<(&str, &str)> = vec![
         ("shell", "Execute terminal commands."),
@@ -3464,7 +3537,18 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         .as_ref()
         .map(|r| build_hardware_context(r, message, &board_names, rag_limit))
         .unwrap_or_default();
-    let context = format!("{mem_context}{hw_context}");
+    let manual_context = manual_rag
+        .as_ref()
+        .map(|r| {
+            build_manual_context(
+                r,
+                message,
+                &config.home_assistant.appliance_keywords,
+                rag_limit,
+            )
+        })
+        .unwrap_or_default();
+    let context = format!("{mem_context}{hw_context}{manual_context}");
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
     let enriched = if context.is_empty() {
         format!("[{now}] {message}")
