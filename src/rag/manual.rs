@@ -42,7 +42,20 @@ impl ManualRag {
         let max_tokens = 512;
 
         for path in paths {
-            let content = std::fs::read_to_string(&path).unwrap_or_default();
+            let content = if path.extension().and_then(|e| e.to_str()) == Some("pdf") {
+                #[cfg(feature = "rag-pdf")]
+                {
+                    Self::extract_pdf_text(&path).unwrap_or_default()
+                }
+                #[cfg(not(feature = "rag-pdf"))]
+                {
+                    tracing::warn!("Skipping PDF manual '{}' because 'rag-pdf' feature is disabled", path.display());
+                    String::new()
+                }
+            } else {
+                std::fs::read_to_string(&path).unwrap_or_default()
+            };
+
             if content.trim().is_empty() {
                 continue;
             }
@@ -76,6 +89,12 @@ impl ManualRag {
         Ok(Self { chunks, filenames })
     }
 
+    #[cfg(feature = "rag-pdf")]
+    fn extract_pdf_text(path: &Path) -> Option<String> {
+        let bytes = std::fs::read(path).ok()?;
+        pdf_extract::extract_text_from_mem(&bytes).ok()
+    }
+
     fn collect_paths(dir: &Path, out: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
@@ -86,7 +105,7 @@ impl ManualRag {
                 Self::collect_paths(&path, out);
             } else if path.is_file() {
                 let ext = path.extension().and_then(|e| e.to_str());
-                if ext == Some("md") || ext == Some("txt") {
+                if ext == Some("md") || ext == Some("txt") || ext == Some("pdf") {
                     out.push(path);
                 }
             }
